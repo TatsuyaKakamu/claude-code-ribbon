@@ -55,6 +55,12 @@ In a Claude Code terminal session, type:
 
 ## What you see
 
+### Context used
+
+- The ring at the far left shows how full the context window is, with the percent used.
+- It is **blue** under 50%, **yellow** from 50%, and **red** from 80%.
+- It shows once the app reports the context size. In a narrow band it leads the cache row. In the terminal it is a quarter-step circle (○◔◑◕●).
+
 ### Usage left
 
 - **7D** (orange) is your 7-day window. **5H** (yellow) is your 5-hour window.
@@ -99,7 +105,7 @@ ribbon/
 │   ├── cache-art.ts        the cache card and robot drawings, the price table
 │   └── font.ts             Outfit, embedded so the drawings render anywhere
 ├── types/index.d.ts        the shape of what the band remembers
-├── tests/                  7 tests: layouts, warm and cold, terminal, cleared sessions
+├── tests/                  13 tests: layouts, warm and cold, terminal, cleared sessions, context gauge
 └── assets/                 banner, screenshots, hex icon
 ```
 
