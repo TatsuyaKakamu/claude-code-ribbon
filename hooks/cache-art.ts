@@ -90,11 +90,30 @@ export type CacheView = {
 export const mineModel = (v: CacheView): Model | undefined => MODELS.find(m => m.id === v.mine)
 
 // ---------- SVG helpers ----------
+// The engine tells a hook nothing of the theme, but a drawing sees the system's
+// colour scheme: on a light one, CSS swaps the dark palette's colours (CSS wins
+// over the fill and stroke attributes the drawings write).
+const LIGHT: Record<string, string> = {
+  [TEXT]: '#1f1e1b',
+  [MUTED]: '#6b6658',
+  [EMPTY]: '#d9d4c7',
+  [LINE]: '#e4dfd3',
+  [HUE.cold]: '#3f8aa0',
+}
+const LIGHT_CSS =
+  '@media (prefers-color-scheme: light){' +
+  Object.entries(LIGHT)
+    .map(([dark, light]) => `[fill="${dark}"]{fill:${light}}[stroke="${dark}"]{stroke:${light}}`)
+    .join('') +
+  '}'
+
 export const svgDoc = (w: number, h: number, body: string, font: boolean): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+  `<style>${LIGHT_CSS}` +
   (font
-    ? `<style>@font-face{font-family:RS;font-weight:100 900;src:url(data:font/woff2;base64,${SANS}) format('woff2')} text{font-family:RS,system-ui,'Segoe UI',sans-serif}</style>`
+    ? `@font-face{font-family:RS;font-weight:100 900;src:url(data:font/woff2;base64,${SANS}) format('woff2')} text{font-family:RS,system-ui,'Segoe UI',sans-serif}`
     : '') +
+  '</style>' +
   body +
   '</svg>'
 
@@ -129,7 +148,15 @@ export const chipSvg = (mode: Mode): { source: string; w: number; h: number } =>
 }
 
 // ---------- Robo: bobbing when warm, frozen in ice when cold ----------
-const ROBO_PIX = ['..X..X..', 'XXXXXXXX', 'XXXXXXXX', 'X.XXXX.X', 'XXXXXXXX', 'XXXXXXXX', 'X..XX..X']
+// Clawd, the Claude Code mascot, decoded from the welcome screen's quadrant blocks
+// (▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝): one quadrant is one pixel, twice as tall as
+// wide like a terminal cell's quadrant.
+const ROBO_PIX = ['..XXXXXXXXXXXX..', '..XX.XXXXXX.XX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..', '...X.X....X.X...']
+const PIX_W = 16
+/** Rows in pixel widths (each row is 2 units tall). */
+const PIX_H = 10
+/** Claude's own orange. */
+const CLAWD = '#d97757'
 
 const mix = (a: string, b: string, t: number): string =>
   '#' +
@@ -143,48 +170,129 @@ const pixels = (u: number, fill: string): string => {
   let d = ''
   ROBO_PIX.forEach((row, y) =>
     [...row].forEach((ch, x) => {
-      if (ch === 'X') d += `M${x * u} ${y * u}h${u}v${u}h${-u}z`
+      if (ch === 'X') d += `M${x * u} ${y * 2 * u}h${u}v${2 * u}h${-u}z`
     }),
   )
   return `<path d="${d}" fill="${fill}"/>`
 }
 
+/** Clawd's eyes, filled in so they read on a light background as on a dark one. */
+const eyes = (u: number, fill: string): string =>
+  `<rect x="${4 * u}" y="${2 * u}" width="${u}" height="${2 * u}" fill="${fill}"/><rect x="${11 * u}" y="${2 * u}" width="${u}" height="${2 * u}" fill="${fill}"/>`
+
+// ---------- Robo's moves while warm ----------
+// Each pose is Robo's grid with one spare row on top for a raised arm: X is the
+// body, o an eye. The poses are our own, drawn in the same block style.
+const POSE: Record<string, string[]> = {
+  idle: ['................', '..XXXXXXXXXXXX..', '..XXoXXXXXXoXX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..', '...X.X....X.X...'],
+  blink: ['................', '..XXXXXXXXXXXX..', '..XXXXXXXXXXXX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..', '...X.X....X.X...'],
+  lookL: ['................', '..XXXXXXXXXXXX..', '..XoXXXXXXoXXX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..', '...X.X....X.X...'],
+  lookR: ['................', '..XXXXXXXXXXXX..', '..XXXoXXXXXXoX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..', '...X.X....X.X...'],
+  waveUp: ['..............XX', '..XXXXXXXXXXXXXX', '..XXoXXXXXXoXX..', 'XXXXXXXXXXXXXX..', '..XXXXXXXXXXXX..', '...X.X....X.X...'],
+  waveOut: ['................', '..XXXXXXXXXXXXXX', '..XXoXXXXXXoXX..', 'XXXXXXXXXXXXXX..', '..XXXXXXXXXXXX..', '...X.X....X.X...'],
+  cheer: ['XX............XX', 'XXXXXXXXXXXXXXXX', '..XXoXXXXXXoXX..', '..XXXXXXXXXXXX..', '..XXXXXXXXXXXX..', '...X.X....X.X...'],
+  crouch: ['................', '................', '..XXXXXXXXXXXX..', '..XXoXXXXXXoXX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..'],
+  stepA: ['................', '..XXXXXXXXXXXX..', '..XXoXXXXXXoXX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..', '..X.X.....X.X...'],
+  stepB: ['................', '..XXXXXXXXXXXX..', '..XXoXXXXXXoXX..', 'XXXXXXXXXXXXXXXX', '..XXXXXXXXXXXX..', '....X.X.....X.X.'],
+}
+/** Pose rows, in pixel widths (each row is 2 units tall). */
+const POSE_H = 12
+
+/** One beat: a pose, how long it holds (s), and how far it rises (units). */
+type Beat = [pose: string, sec: number, rise: number]
+const rep = (n: number, beats: Beat[]): Beat[] => Array.from({ length: n }, () => beats).flat()
+const BOB: Beat[] = [['idle', 0.5, 0], ['idle', 0.5, 1]]
+/** About 15 s of moves, then round again. */
+const MOVES: Beat[] = [
+  ...rep(3, BOB),
+  ['idle', 0.4, 0], ['blink', 0.12, 0], ['idle', 0.5, 0],
+  ['lookL', 0.7, 0], ['idle', 0.15, 0], ['lookR', 0.7, 0], ['idle', 0.3, 0],
+  ...rep(2, BOB),
+  ...rep(4, [['waveUp', 0.22, 0], ['waveOut', 0.22, 0]]), ['idle', 0.4, 0],
+  ...rep(2, BOB),
+  ['crouch', 0.15, 0], ['cheer', 0.12, 2], ['cheer', 0.18, 3], ['cheer', 0.12, 2], ['crouch', 0.12, 0], ['idle', 0.4, 0],
+  ...rep(3, [['stepA', 0.18, 0], ['stepB', 0.18, 0]]), ['idle', 0.3, 0],
+  ['blink', 0.12, 0], ['idle', 0.5, 0],
+]
+
+const r3 = (n: number): string => String(Math.round(n * 1000) / 1000)
+
+/** A pose as two paths, body then eyes, `u` pixels a grid unit. One rectangle per run of a row. */
+const poseShapes = (rows: string[], u: number): string => {
+  const d: Record<string, string> = { X: '', o: '' }
+  rows.forEach((row, y) => {
+    for (const m of row.matchAll(/X+|o+/g)) {
+      const w = r3(m[0].length * u)
+      d[m[0][0]] += `M${r3((m.index ?? 0) * u)} ${r3(y * 2 * u)}h${w}v${r3(2 * u)}h-${w}z`
+    }
+  })
+  return `<path d="${d.X}" fill="${CLAWD}"/><path d="${d.o}" fill="#000"/>`
+}
+
+/**
+ * Robo running through MOVES. One group per pose and height, each shown only on
+ * its own beats (discrete SMIL), so a still render shows the first beat.
+ */
+const movesShapes = (u: number): string => {
+  const total = MOVES.reduce((s, b) => s + b[1], 0)
+  const starts: number[] = []
+  let at = 0
+  for (const b of MOVES) {
+    starts.push(Math.round((at / total) * 10000) / 10000)
+    at += b[1]
+  }
+  const key = (b: Beat) => `${b[0]}@${b[2]}`
+  // A value is written only where it changes, to keep the drawing small.
+  const anim = (attr: string, values: string[]) => {
+    const vs: string[] = []
+    const ts: number[] = []
+    values.forEach((v, i) => {
+      if (i === 0 || v !== values[i - 1]) vs.push(v), ts.push(starts[i])
+    })
+    return `<animate attributeName="${attr}" values="${vs.join(';')}" keyTimes="${ts.join(';')}" dur="${r3(total)}s" calcMode="discrete" repeatCount="indefinite"/>`
+  }
+  // The shadow shrinks as Robo rises.
+  const rx = (b: Beat) => r3((6 - b[2] * 0.65) * u)
+  let s =
+    `<ellipse cx="${r3(8 * u)}" cy="${r3((POSE_H + 0.7) * u)}" rx="${rx(MOVES[0])}" ry="${r3(0.42 * u)}" fill="#000" opacity=".4" shape-rendering="auto">` +
+    anim('rx', MOVES.map(rx)) +
+    '</ellipse>'
+  for (const k of new Set(MOVES.map(key))) {
+    const [pose, rise] = k.split('@')
+    const shown = MOVES.map(b => (key(b) === k ? 'visible' : 'hidden'))
+    s +=
+      `<g transform="translate(0 ${r3(-Number(rise) * u)})" visibility="${shown[0]}">` +
+      poseShapes(POSE[pose], u) +
+      anim('visibility', shown) +
+      '</g>'
+  }
+  return s
+}
+
 /** Robo in a box `size` pixels square, top-left at x, y. SMIL only, so the Svg needs isInteractive. */
 export const roboShapes = (x: number, y: number, size: number, mode: Mode): string => {
-  const ease = 'calcMode="spline" keyTimes="0;0.5;1" keySplines=".45 0 .55 1;.45 0 .55 1"'
   if (mode === 'warm') {
-    // Robo takes the WARM chip's red, so the two read as one badge.
-    const ROBO = HUE.warm
-    const u = size / 10
+    const u = size / 18
     const ox = x + u
-    const oy = y + 1.6 * u
-    return (
-      `<g transform="translate(${ox} ${oy})" shape-rendering="crispEdges">` +
-      `<ellipse cx="${4 * u}" cy="${7.75 * u}" rx="${3 * u}" ry="${0.42 * u}" fill="#000" opacity=".4" shape-rendering="auto">` +
-      `<animate attributeName="rx" values="${3 * u};${2.3 * u};${3 * u}" dur="1.2s" repeatCount="indefinite" ${ease}/></ellipse>` +
-      `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 ${-1.1 * u};0 0" dur="1.2s" repeatCount="indefinite" ${ease}/>` +
-      pixels(u, ROBO) +
-      // A blink every few seconds: the eye holes fill for a moment.
-      `<g opacity="0"><rect x="${u}" y="${3 * u}" width="${u}" height="${u}" fill="${ROBO}"/><rect x="${6 * u}" y="${3 * u}" width="${u}" height="${u}" fill="${ROBO}"/>` +
-      `<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.9;0.91;0.95;1" dur="3.4s" repeatCount="indefinite"/></g>` +
-      `</g></g>`
-    )
+    const oy = y + (size - POSE_H * u) / 2
+    return `<g transform="translate(${r3(ox)} ${r3(oy)})" shape-rendering="crispEdges">${movesShapes(u)}</g>`
   }
   // Cold: still, pale, inside a rounded ice block with icicles and one twinkle.
-  const u = size / 12.2
+  const u = size / 20
   const ice = mix(HUE.cold, '#ffffff', 0.5)
-  const ox = x + 1.6 * u
-  const oy = y + 1.6 * u
+  const bw = (PIX_W + 2.4) * u
+  const bh = (PIX_H + 2.4) * u
+  const ox = x + (size - bw) / 2 + 1.2 * u
+  const oy = y + (size - bh - 1.5 * u) / 2 + 1.2 * u
   const bx = -1.2 * u
   const by = -1.2 * u
-  const bw = 10.4 * u
-  const bh = 9.4 * u
   let s = `<g transform="translate(${ox} ${oy})">`
   s += pixels(u, ice)
-  s += `<rect x="${2 * u}" y="0" width="${u}" height="${u * 0.45}" fill="#fff" opacity=".9"/><rect x="${5 * u}" y="0" width="${u}" height="${u * 0.45}" fill="#fff" opacity=".9"/>`
+  s += eyes(u, '#000')
+  s += `<rect x="${4 * u}" y="0" width="${u}" height="${u * 0.45}" fill="#fff" opacity=".9"/><rect x="${11 * u}" y="0" width="${u}" height="${u * 0.45}" fill="#fff" opacity=".9"/>`
   s += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="${1.5 * u}" fill="${HUE.cold}" fill-opacity=".28" stroke="${ice}" stroke-width="${0.38 * u}"/>`
   s += `<path d="M${bx + 0.9 * u} ${by + 2.6 * u}l${1.6 * u} ${-1.6 * u}M${bx + 0.9 * u} ${by + 4.2 * u}l${0.8 * u} ${-0.8 * u}" stroke="#fff" stroke-opacity=".75" stroke-width="${0.32 * u}" stroke-linecap="round"/>`
-  for (const ix of [1.4, 4.4, 7.2]) {
+  for (const ix of [2.4, 8.6, 14.8]) {
     const tx = bx + ix * u
     const ty = by + bh
     s += `<path d="M${tx} ${ty}h${0.9 * u}l${-0.45 * u} ${1.5 * u}z" fill="${ice}"/>`
@@ -324,7 +432,8 @@ export const cardSvg = (v: CacheView, kind: Kind, W: number): { source: string; 
       zoneCost(13, 182, (W - 26) / 4, { compact: true })
   }
   const h = H + CARD_TOP
-  const body = `<rect width="${W}" height="${h}" fill="${BG}"/><g transform="translate(0 ${CARD_TOP})">` + hline(0) + g + '</g>'
+  // No background: the card sits on the app's own, light or dark, as the band does.
+  const body = `<g transform="translate(0 ${CARD_TOP})">` + hline(0) + g + '</g>'
   const alt = cold
     ? `Cache cold. Idle ${v.idle}. Next message re-caches ${tok(v.tokens)} tokens.`
     : `Cache warm. Goes cold in ${Math.max(0, TTL_MIN - v.idleMin)} minutes. ${tok(v.tokens)} tokens cached.`
