@@ -9,7 +9,7 @@ const PROPS = {
   hasSurvey: false,
   isWorking: false,
   maxRows: 12,
-  bodyColumns: 80,
+  bodyColumns: 90,
   scroll: { offset: 0, bodyRows: 12 },
   view: {},
 } as const
@@ -28,7 +28,9 @@ test('a warm cache shows Robo, the WARM chip and the minutes left, folded', asyn
   const band = await $.ui.mount({ plugin: 'ribbon', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
   // Drawings keep no key in the kit, so they are found by what they say.
   const alts = (await band.findAll({ type: 'Svg' })).map(s => s.props.alt)
-  expect(alts).toEqual(['Robo, bobbing', 'WARM'])
+  // 770k of a 1M window: the context ring leads the row.
+  expect(alts).toEqual(['Context 77% used', 'Robo, bobbing', 'WARM'])
+  expect(await band.find({ text: ' 77%' })).toBeDefined()
   expect(await band.find({ text: ' 42m left' })).toBeDefined()
   expect(await band.find({ key: 'card' })).toBeUndefined()
   expect((await band.find({ key: 'cache-fold' }))?.props.label).toBe('Show')
@@ -52,8 +54,8 @@ test('a cold cache opens the card with the re-cache price, and Hide folds it to 
   const card = await band.find({ key: 'card' })
   expect(card).toBeDefined()
   expect(JSON.stringify(card)).toContain('Cache cold. Idle 3d 9h. Next message re-caches 770k tokens.')
-  // The page's width: 80 columns is a 1020 px band.
-  expect(JSON.stringify(card)).toContain('width=\\"1020\\"')
+  // The page's width: 90 columns is a 1140 px band.
+  expect(JSON.stringify(card)).toContain('width=\\"1140\\"')
 
   await band.press({ key: 'cache-fold' })
   expect(await band.find({ key: 'card' })).toBeUndefined()
@@ -98,6 +100,8 @@ test('the terminal draws the cache as text, with no drawings and no fold button'
   const band = await $.ui.mount({ plugin: 'ribbon', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
   expect(await band.find({ text: ' COLD ' })).toBeDefined()
   expect(await band.find({ text: '$6.16' })).toBeDefined()
+  // The context gauge is a glyph here: 77% rounds to three quarters.
+  expect(await band.find({ text: '◕' })).toBeDefined()
   expect(await band.findAll({ type: 'Svg' })).toEqual([])
   expect(await band.find({ key: 'cache-fold' })).toBeUndefined()
   expect(await band.find({ key: 'card' })).toBeUndefined()

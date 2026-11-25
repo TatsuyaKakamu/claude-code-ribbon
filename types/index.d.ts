@@ -8,11 +8,14 @@ export type Window = { kind: string; percentUsed: number; resetsAt?: string }
  */
 export type CacheFacts = { lastAt: number; tokens: number; window: number; model: string | null }
 
+/** How full the context window is: tokens in the conversation, and the model's window. */
+export type Ctx = { tokens: number; window: number }
+
 /** Whether the cache card is open, remembered only for the state it was set in. */
 export type Fold = { mode: 'warm' | 'cold'; open: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
-    'ribbon': { windows: Window[]; cache: CacheFacts | null; fold: Fold | null }
+    'ribbon': { windows: Window[]; cache: CacheFacts | null; fold: Fold | null; ctx: Ctx | null }
   }
 }

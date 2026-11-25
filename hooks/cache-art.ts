@@ -99,6 +99,8 @@ const LIGHT: Record<string, string> = {
   [EMPTY]: '#d9d4c7',
   [LINE]: '#e4dfd3',
   [HUE.cold]: '#3f8aa0',
+  // The gauge's yellow is too pale on a light background.
+  '#e6c229': '#b08d00',
 }
 const LIGHT_CSS =
   '@media (prefers-color-scheme: light){' +
@@ -116,6 +118,41 @@ export const svgDoc = (w: number, h: number, body: string, font: boolean): strin
   '</style>' +
   body +
   '</svg>'
+
+// ---------- Context gauge: how full the context window is ----------
+/** Blue while there is room, yellow from YELLOW_AT, red from RED_AT (percent used). */
+export const CTX_YELLOW_AT = 50
+export const CTX_RED_AT = 80
+export const CTX_HUE = { blue: '#4f8fe0', yellow: '#e6c229', red: '#e5534b' } as const
+/** Columns the gauge adds to a row: the ring, " 100%", and its margin. */
+export const CTX_COLS = 8
+
+/** Percent of the context window used, 0 to 100, or null until both figures are known. */
+export const ctxPct = (tokens: number, window: number): number | null =>
+  tokens > 0 && window > 0 ? Math.min(100, Math.round((tokens / window) * 100)) : null
+
+export const ctxColor = (pct: number): string =>
+  pct >= CTX_RED_AT ? CTX_HUE.red : pct >= CTX_YELLOW_AT ? CTX_HUE.yellow : CTX_HUE.blue
+
+/** The terminal's gauge: a quarter-step circle. */
+export const ctxGlyph = (pct: number): string => '○◔◑◕●'[Math.max(0, Math.min(4, Math.round(pct / 25)))]
+
+export const RING_SIZE = 18
+/** A ring that fills clockwise from the top. */
+export const ringSvg = (pct: number): string => {
+  const c = RING_SIZE / 2
+  const r = c - 2.5
+  const len = 2 * Math.PI * r
+  const on = r3((len * Math.max(0, Math.min(100, pct))) / 100)
+  return svgDoc(
+    RING_SIZE,
+    RING_SIZE,
+    `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${EMPTY}" stroke-width="3"/>` +
+      `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${ctxColor(pct)}" stroke-width="3"` +
+      ` stroke-dasharray="${on} ${r3(len)}" transform="rotate(-90 ${c} ${c})"/>`,
+    false,
+  )
+}
 
 // ---------- Rounded chips (WARM, COLD, YOU) ----------
 // A text background can't be rounded, so a chip is a small drawing. The mod can't

@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { CacheFacts, Fold, Window } from '../types'
+import type { CacheFacts, Ctx, Fold, Window } from '../types'
 import {
-  HUE, INK, ORANGE, ROBO_SIZE, TTL_MIN, TTL_MS, WORD, YELLOW,
-  bandPx, cardSvg, chipSvg, costOf, familyOf, fmtIdle, kindOf, mineModel, roboSvg, usd,
+  CTX_COLS, HUE, INK, ORANGE, RING_SIZE, ROBO_SIZE, TTL_MIN, TTL_MS, WORD, YELLOW,
+  bandPx, cardSvg, chipSvg, costOf, ctxColor, ctxGlyph, ctxPct, familyOf, fmtIdle, kindOf, mineModel, ringSvg, roboSvg, usd,
 } from './cache-art'
 import type { CacheView } from './cache-art'
 
@@ -34,6 +34,14 @@ const TICK_MS = 30_000
 const windows = atom({ plugin: 'ribbon', key: 'windows' } as const, [] as Window[])
 const cache = atom({ plugin: 'ribbon', key: 'cache' } as const, null as CacheFacts | null)
 const fold = atom({ plugin: 'ribbon', key: 'fold' } as const, null as Fold | null)
+/** The context gauge's own figures, so it does not wait on the cache's request clock. */
+const ctx = atom({ plugin: 'ribbon', key: 'ctx' } as const, null as Ctx | null)
+
+/** Record a context reading; a reading without tokens leaves the last one standing. */
+const fill = async ($: EngineInterface, tokens: number | undefined, window: number | undefined): Promise<void> => {
+  if (!tokens || tokens <= 0) return
+  await update($, ctx, x => ({ tokens, window: window || x?.window || 0 }))
+}
 
 const NAMES: Record<string, string> = { seven_day: '7D', five_hour: '5H', spend_limit: 'SPEND' }
 const ORDER: Record<string, number> = { five_hour: 0, seven_day: 1 }
@@ -78,12 +86,14 @@ export const viewOf = (c: CacheFacts | null, now: number): CacheView | null => {
 const pull = async ($: EngineInterface): Promise<void> => {
   const u = await $.session.usage()
   await update($, windows, () => clean(u.rateLimits))
+  await fill($, u.context.tokens, u.context.window)
 }
 
 /** Fresh context figures from the engine onto the cache facts, when it has them. */
 const measure = async ($: EngineInterface, lastAt: number | null, model: string | null): Promise<void> => {
   const u = await $.session.usage()
   const m = model ?? (await $.session.model())
+  await fill($, u.context.tokens, u.context.window)
   await update($, cache, c => ({
     lastAt: lastAt ?? c?.lastAt ?? 0,
     tokens: u.context.tokens && u.context.tokens > 0 ? u.context.tokens : (c?.tokens ?? 0),
@@ -105,6 +115,7 @@ export const register: Register = on => {
     }
     if (e.changed.includes('context') && e.context.tokens && e.context.tokens > 0) {
       const tokens = e.context.tokens
+      await fill($, tokens, e.context.window)
       await update($, cache, c => (c ? { ...c, tokens, window: e.context.window || c.window } : c))
     }
     return next(e)
@@ -116,6 +127,10 @@ export const register: Register = on => {
     if (e.source === 'clear' || e.source === 'compact') {
       await update($, cache, () => null)
       await update($, fold, () => null)
+      // The old size no longer holds; the gauge comes back with the engine's next reading.
+      await update($, ctx, () => null)
+      const u = await $.session.usage()
+      await fill($, u.context.tokens, u.context.window)
     } else if ((e.source === 'resume' || e.source === 'fork') && typeof e.seconds_since_last_response === 'number') {
       const now = await $.clock.now()
       const lastAt = now - e.seconds_since_last_response * 1000
@@ -123,6 +138,7 @@ export const register: Register = on => {
       const model = typeof e.model === 'string' ? e.model : await $.session.model()
       const tokens = typeof e.context_tokens === 'number' ? e.context_tokens : 0
       await update($, cache, () => ({ lastAt, tokens, window, model }))
+      await fill($, tokens, window)
     }
     return r
   }).catch(($, e, next) => next(e)) // a band that fails to seed never holds up the session
@@ -158,8 +174,10 @@ export const register: Register = on => {
     const list = await read($, windows)
     const now = await $.clock.now()
     const view = viewOf(await read($, cache), now)
+    const c = await read($, ctx)
+    const pct = c ? ctxPct(c.tokens, c.window) : null
 
-    if (list.length === 0 && !view) {
+    if (list.length === 0 && !view && pct === null) {
       return (
         <Box paddingX={1}>
           <Text color={MUTED}>USAGE · waiting for the first reply</Text>
@@ -168,9 +186,33 @@ export const register: Register = on => {
     }
 
     const columns = e.props.bodyColumns ?? e.viewport?.columns ?? 100
-    const kind = kindOf(columns)
+    // The gauge takes CTX_COLS of the row, so the layouts switch that much earlier when it shows.
+    const kind = kindOf(pct === null ? columns : columns - CTX_COLS)
     const isWide = kind === 'wide'
     const cells = kind === 'tight' ? TIGHT_CELLS : CELLS
+
+    // How full the context window is, leftmost: a ring on a drawing surface, a glyph in the terminal.
+    const ring =
+      pct === null ? null : Svg ? (
+        <Svg key="ring" source={ringSvg(pct)} alt={`Context ${pct}% used`} width={RING_SIZE} height={RING_SIZE} />
+      ) : (
+        <Text key="ring" color={ctxColor(pct)}>{ctxGlyph(pct)}</Text>
+      )
+    const inlineGauge =
+      pct === null ? null : (
+        <Box key="ctx" flexDirection="row" flexShrink={0} marginRight={2} alignItems="center">
+          {ring}
+          <Text color={ctxColor(pct)} bold> {pct}%</Text>
+        </Box>
+      )
+    // Stacked, the gauge is a small block like the windows: the ring, then the percent under it.
+    const gauge =
+      pct === null ? null : isWide ? inlineGauge : (
+        <Box key="ctx" flexDirection="column" flexShrink={0} marginRight={2}>
+          <Box flexDirection="row">{ring}</Box>
+          <Text color={ctxColor(pct)} bold>{pct}%</Text>
+        </Box>
+      )
 
     const parts = (w: Window) => {
       const left = Math.max(0, Math.round((100 - w.percentUsed) * 10) / 10)
@@ -230,6 +272,7 @@ export const register: Register = on => {
     if (!view) {
       return (
         <Box flexDirection="row" paddingX={1}>
+          {gauge}
           {label}
           {usage}
         </Box>
@@ -278,6 +321,7 @@ export const register: Register = on => {
       rows = (
         // The desktop's native button is taller than a text row: "xs" pads it there and is 0 rows in a terminal.
         <Box key="row" flexDirection="row" paddingX={1} paddingY="xs" alignItems="center">
+          {gauge}
           {label}
           {usage}
           {open ? null : (
@@ -294,6 +338,7 @@ export const register: Register = on => {
       // The cache becomes a third stacked block, the same shape as 7D and 5H.
       rows = (
         <Box key="row" flexDirection="row" paddingX={1}>
+          {gauge}
           {label}
           {usage}
           {open ? null : (
@@ -313,13 +358,14 @@ export const register: Register = on => {
         </Box>
       )
     } else {
-      // Narrow: the cache gets its own row under the usage blocks.
+      // Narrow: the cache gets its own row under the usage blocks, led by the context gauge.
       rows = [
         <Box key="row" flexDirection="row" paddingX={1}>
           {label}
           {usage}
         </Box>,
         <Box key="cache" flexDirection="row" paddingX={1} paddingY="xs" alignItems="center">
+          {inlineGauge}
           {badge}
           {summary}
           {grow}
