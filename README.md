@@ -57,7 +57,7 @@ In a Claude Code terminal session, type:
 
 ### Context used
 
-- The ring at the far left shows how full the context window is, with the percent used.
+- The ring to the right of the usage windows shows how full the context window is, with the percent used. It sits next to the cache, since both describe this session.
 - It is **blue** under 50%, **yellow** from 50%, and **red** from 80%.
 - It shows once the app reports the context size. In a narrow band it leads the cache row. In the terminal it is a quarter-step circle (○◔◑◕●).
 

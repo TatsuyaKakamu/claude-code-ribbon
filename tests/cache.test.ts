@@ -28,7 +28,7 @@ test('a warm cache shows Robo, the WARM chip and the minutes left, folded', asyn
   const band = await $.ui.mount({ plugin: 'ribbon', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
   // Drawings keep no key in the kit, so they are found by what they say.
   const alts = (await band.findAll({ type: 'Svg' })).map(s => s.props.alt)
-  // 770k of a 1M window: the context ring leads the row.
+  // 770k of a 1M window: the context ring is the first drawing, ahead of the cache.
   expect(alts).toEqual(['Context 77% used', 'Robo, bobbing', 'WARM'])
   expect(await band.find({ text: ' 77%' })).toBeDefined()
   expect(await band.find({ text: ' 42m left' })).toBeDefined()
@@ -76,6 +76,11 @@ test('squeezed, the folded cache stacks as a third block, then takes its own row
 
   const half = await $.ui.mount({ plugin: 'ribbon', surface: 'desktop', component: 'AbovePrompt', props: { ...PROPS, bodyColumns: 53 } })
   expect(await half.find({ key: 'block' })).toBeDefined()
+  // Stacked, the gauge sits between the last window and the cache block.
+  const stack = JSON.stringify(await half.find({ type: 'Box' }))
+  expect(stack.indexOf('"key":"w-1"')).toBeGreaterThan(-1)
+  expect(stack.indexOf('"key":"ctx"')).toBeGreaterThan(stack.indexOf('"key":"w-1"'))
+  expect(stack.indexOf('"key":"ctx"')).toBeLessThan(stack.indexOf('"key":"block"'))
   expect(await half.find({ text: '42m left' })).toBeDefined()
   expect(await half.find({ text: '$0.15' })).toBeDefined()
   await half.unmount()

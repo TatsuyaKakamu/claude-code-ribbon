@@ -9,8 +9,8 @@ import {
 import type { CacheView } from './cache-art'
 
 // A band above the prompt in a warm dark look: card surface, cream text,
-// dot-matrix bars. Shows how much of each usage window is LEFT, 7-day first, then
-// 5-hour; 7D is orange, 5H is yellow; a window under 15% adds a bold LOW.
+// dot-matrix bars. Shows how much of each usage window is LEFT, 5-hour first, then
+// 7-day; 7D is orange, 5H is yellow; a window under 15% adds a bold LOW.
 //
 // After the first reply it also shows the prompt cache: WARM (red, Robo bobbing)
 // for an hour after the last request, then COLD (blue, Robo frozen) with what the
@@ -191,7 +191,8 @@ export const register: Register = on => {
     const isWide = kind === 'wide'
     const cells = kind === 'tight' ? TIGHT_CELLS : CELLS
 
-    // How full the context window is, leftmost: a ring on a drawing surface, a glyph in the terminal.
+    // How full the context window is, right after the usage windows and before the cache:
+    // the session's own facts sit together. A ring on a drawing surface, a glyph in the terminal.
     const ring =
       pct === null ? null : Svg ? (
         <Svg key="ring" source={ringSvg(pct)} alt={`Context ${pct}% used`} width={RING_SIZE} height={RING_SIZE} />
@@ -272,9 +273,9 @@ export const register: Register = on => {
     if (!view) {
       return (
         <Box flexDirection="row" paddingX={1}>
-          {gauge}
           {label}
           {usage}
+          {gauge}
         </Box>
       )
     }
@@ -321,9 +322,9 @@ export const register: Register = on => {
       rows = (
         // The desktop's native button is taller than a text row: "xs" pads it there and is 0 rows in a terminal.
         <Box key="row" flexDirection="row" paddingX={1} paddingY="xs" alignItems="center">
-          {gauge}
           {label}
           {usage}
+          {gauge}
           {open ? null : (
             <Box key="inline" flexDirection="row" flexShrink={0} marginRight={2} alignItems="center">
               {badge}
@@ -338,9 +339,9 @@ export const register: Register = on => {
       // The cache becomes a third stacked block, the same shape as 7D and 5H.
       rows = (
         <Box key="row" flexDirection="row" paddingX={1}>
-          {gauge}
           {label}
           {usage}
+          {gauge}
           {open ? null : (
             <Box key="block" flexDirection="column" flexShrink={0} marginRight={2}>
               <Box flexDirection="row" alignItems="center">{badge}</Box>
