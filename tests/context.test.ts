@@ -45,6 +45,10 @@ test('the gauge reads the engine before the first reply, stacks when squeezed, a
   // No reply yet, so no cache: the gauge still shows.
   const wide = await $.ui.mount({ plugin: 'ribbon', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
   expect((await wide.findAll({ type: 'Svg' })).map(s => s.props.alt)).toEqual(['Context 30% used'])
+  // With no cache yet, the gauge closes the row after the last window.
+  const row = JSON.stringify(await wide.find({ type: 'Box' }))
+  expect(row.indexOf('"key":"w-1"')).toBeGreaterThan(-1)
+  expect(row.indexOf('"key":"ctx"')).toBeGreaterThan(row.indexOf('"key":"w-1"'))
   await wide.unmount()
 
   // 84 columns would be one row without the gauge; with it, the windows stack.
@@ -81,7 +85,7 @@ for (const [tokens, pct, hue] of [
   [600000, 60, CTX_HUE.yellow],
   [900000, 90, CTX_HUE.red],
 ] as const) {
-  test(`at ${pct}% the ring leads the band in its colour`, async ($, on) => {
+  test(`at ${pct}% the ring sits between the windows and the cache in its colour`, async ($, on) => {
     mock.store(on)
     mock.clock(on, { now: NOW })
     on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -95,9 +99,11 @@ for (const [tokens, pct, hue] of [
     expect(svgs[0]?.props.alt).toBe(`Context ${pct}% used`)
     expect(String(svgs[0]?.props.source)).toContain(`stroke="${hue}"`)
     const all = JSON.stringify(await band.find({ type: 'Box' }))
-    // The gauge's box comes before the USAGE label's in the row.
-    expect(all.indexOf('"key":"ctx"')).toBeGreaterThan(-1)
-    expect(all.indexOf('"key":"ctx"')).toBeLessThan(all.indexOf('"key":"label"'))
+    // The gauge's box comes after the last window and before the cache badge.
+    expect(all.indexOf('"key":"w-1"')).toBeGreaterThan(-1)
+    expect(all.indexOf('"key":"ctx"')).toBeGreaterThan(all.indexOf('"key":"w-1"'))
+    expect(all.indexOf('"key":"inline"')).toBeGreaterThan(-1)
+    expect(all.indexOf('"key":"ctx"')).toBeLessThan(all.indexOf('"key":"inline"'))
     await band.unmount()
   })
 }
